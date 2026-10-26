@@ -1,0 +1,9 @@
+budget_label,budget_bytes,workloads,frames_selected,text_selected,visual_selected,prefix_selected
+16 KiB,16384,6,6,0,0,0
+128 MiB,134217728,6,3,0,3,0
+512 MiB,536870912,6,3,0,3,0
+1 GiB,1073741824,6,2,0,4,0
+2 GiB,2147483648,6,1,0,1,4
+4 GiB,4294967296,6,0,0,2,4
+8 GiB,8589934592,6,0,0,1,5
+24 GiB,25769803776,6,0,0,0,6

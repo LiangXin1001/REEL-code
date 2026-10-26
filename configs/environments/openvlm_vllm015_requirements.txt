@@ -1,9 +1,9 @@
-# Direct runtime versions used for Molmo2-8B and MiniCPM-V 4.5.
-# Personal cluster prefixes have intentionally been removed.
+# Direct runtime versions used for the accepted MiniCPM-V 4.5 runs.
+# Tested with Python 3.12.15 and a CUDA 12.8 runtime. Install the matching
+# CUDA-tagged PyTorch wheel for the host; personal cluster prefixes are omitted.
 
 vllm==0.15.0
 transformers==4.57.1
 torch==2.9.1
 fastapi==0.128.0
 starlette==0.50.0
-molmo-utils

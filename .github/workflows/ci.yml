@@ -1,0 +1,51 @@
+name: CPU checks
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.12"]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+
+      - name: Install CPU dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[analysis,dev]"
+
+      - name: Audit public-release tree
+        run: reel-release-audit .
+
+      - name: Verify released aggregate tables
+        run: reel-verify-results results/paper_tables
+
+      - name: Run CPU tests
+        run: python -m pytest -q
+
+      - name: Run static checks
+        run: python -m ruff check src scripts tests instrumentation compat
+
+      - name: Build wheel and source archive
+        run: python -m build
+
+      - name: Smoke-test built wheel
+        run: |
+          python -m pip install --force-reinstall --no-deps dist/reel_eval-*.whl
+          reel-verify-results results/paper_tables
+          reel-release-audit .

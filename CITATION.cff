@@ -1,0 +1,10 @@
+cff-version: 1.2.0
+message: "If you use this software, please cite the software repository."
+title: "REEL: Same Frames, Different Answers and Different Costs"
+type: software
+version: 0.1.0
+authors:
+  - family-names: "Liang"
+    given-names: "Xin"
+repository-code: "https://github.com/LiangXin1001/REEL-code"
+license: Apache-2.0

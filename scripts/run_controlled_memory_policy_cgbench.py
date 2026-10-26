@@ -108,10 +108,43 @@ Do not merge frames, skip frames, repeat frames, add headings, or use frame rang
 Each line must contain at most 24 words total: list at most five entities, describe the action/state in at most eight words, and copy at most eight words of visible text. Use "none" when a field has no visible content.
 Within the same length limit, prioritize object contents, counts, colors, spatial relations, package or label details, and exact visible text. If space is tight, omit generic scene descriptions before these details."""
 
+GLOBAL_SUMMARY_BYTE_LIMIT = 1024
+GLOBAL_SUMMARY_WRITE_PROMPT = """Questions are hidden. Write one question-blind overview of these chronological source frames.
+Summarize only facts visible in the supplied frames. Preserve the main entities, activities, state changes, temporal order, repeated events, counts, locations, and exact visible text when useful. Do not infer what happened in unobserved intervals and do not speculate.
+Output exactly one physical line using this schema:
+Global summary | <overview>
+The complete line, including the prefix, must contain at most <SUMMARY_WORD_LIMIT> words and at most 1024 UTF-8 bytes. Do not add a heading, bullets, frame-by-frame list, or any other text."""
+
+FRAME_TEXT_DERIVED_PROFILES = {
+    "hybrid_fixed": {
+        "summary_word_limit": 128,
+        "global_summary": True,
+        "compact_frame_table": True,
+        "budget_rule": "lossless compact frame table plus summary; no larger than Balanced24",
+    },
+    "hybrid_added": {
+        "summary_word_limit": 128,
+        "global_summary": True,
+        "compact_frame_table": False,
+        "budget_rule": "verbatim Balanced24 frame records plus an added summary",
+    },
+    "compact_only": {
+        "summary_word_limit": 0,
+        "global_summary": False,
+        "compact_frame_table": True,
+        "budget_rule": "lossless compact frame table without a summary",
+    },
+}
+
 FRAME_LEVEL_WRITE_PROMPTS = {
     "balanced24": FRAME_LEVEL_WRITE_PROMPT,
     "expanded48": FRAME_LEVEL_EXPANDED48_WRITE_PROMPT,
     "detail24": FRAME_LEVEL_DETAIL24_WRITE_PROMPT,
+    # All derived profiles reuse the already accepted Balanced24 frame records;
+    # none invokes a different frame writer prompt.
+    "hybrid_fixed": FRAME_LEVEL_WRITE_PROMPT,
+    "hybrid_added": FRAME_LEVEL_WRITE_PROMPT,
+    "compact_only": FRAME_LEVEL_WRITE_PROMPT,
 }
 
 
@@ -123,6 +156,24 @@ def frame_level_write_prompts(profile: str) -> tuple[str, str]:
         1,
     )
     return question_hidden, context_available
+
+
+def frame_text_derived_spec(profile: str) -> dict[str, int | str | bool] | None:
+    return FRAME_TEXT_DERIVED_PROFILES.get(profile)
+
+
+def frame_text_summary_spec(profile: str) -> dict[str, int | str | bool] | None:
+    spec = frame_text_derived_spec(profile)
+    return spec if spec is not None and bool(spec["global_summary"]) else None
+
+
+def global_summary_write_prompt(profile: str) -> str:
+    spec = frame_text_summary_spec(profile)
+    if spec is None:
+        raise ValueError(f"frame-text profile has no global summary: {profile}")
+    return GLOBAL_SUMMARY_WRITE_PROMPT.replace(
+        "<SUMMARY_WORD_LIMIT>", str(spec["summary_word_limit"])
+    )
 
 MATCHED_WRITE_PROMPT = """Write question-relevant or generally useful facts from these chronological source frames using exactly this schema for every line:
 Frames <start>-<end> | entities: <visible entities> | actions: <visible actions> | state/text: <state changes or visible text>
@@ -917,6 +968,102 @@ def resolve_prebuilt_repository(directory: Path, video_id: str) -> Path:
     return candidates[0]
 
 
+def resolve_prebuilt_global_summary(directory: Path, video_id: str) -> Path:
+    """Resolve one accepted summary emitted by a sharded or composed added-summary run."""
+    filename = f"{video_id}.global_summary.txt"
+    candidates = [
+        path
+        for path in (
+            directory / filename,
+            directory / "run" / filename,
+            *directory.glob(f"shard_*/run/{filename}"),
+        )
+        if path.is_file()
+    ]
+    if len(candidates) != 1:
+        raise FileNotFoundError(
+            f"expected exactly one prebuilt global summary for {video_id} under "
+            f"{directory}; found={list(map(str, candidates))}"
+        )
+    return candidates[0]
+
+
+def resolve_prebuilt_timestamped_repository(directory: Path, video_id: str) -> Path:
+    filename = f"{video_id}.repository_with_time.txt"
+    candidates = [
+        path
+        for path in (
+            directory / filename,
+            directory / "run" / filename,
+            *directory.glob(f"shard_*/run/{filename}"),
+        )
+        if path.is_file()
+    ]
+    if len(candidates) != 1:
+        raise FileNotFoundError(
+            f"expected exactly one timestamped repository for {video_id} under "
+            f"{directory}; found={list(map(str, candidates))}"
+        )
+    return candidates[0]
+
+
+def load_base_frame_text_acceptance(directory: Path) -> tuple[dict, Path]:
+    """Load and strictly identify the accepted Balanced24 construction protocol."""
+    candidates = [
+        path
+        for path in (
+            directory / "frame_text_schema_acceptance.json",
+            directory / "run" / "frame_text_schema_acceptance.json",
+        )
+        if path.is_file()
+    ]
+    if len(candidates) != 1:
+        raise FileNotFoundError(
+            "expected exactly one composed frame-text acceptance under "
+            f"{directory}; found={list(map(str, candidates))}"
+        )
+    path = candidates[0]
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    expected_prompt_sha = hashlib.sha256(FRAME_LEVEL_WRITE_PROMPT.encode()).hexdigest()
+    required = {
+        "accepted": True,
+        "source_frames_per_video": 64,
+        "writer_chunk_size": 8,
+        "frame_writer_tokens": 1024,
+        "prompt_sha256": expected_prompt_sha,
+    }
+    mismatches = {
+        key: {"observed": payload.get(key), "expected": value}
+        for key, value in required.items()
+        if payload.get(key) != value
+    }
+    if payload.get("global_summary") not in {None, False}:
+        mismatches["global_summary"] = {
+            "observed": payload.get("global_summary"),
+            "expected": False,
+        }
+    if payload.get("compact_frame_table") not in {None, False}:
+        mismatches["compact_frame_table"] = {
+            "observed": payload.get("compact_frame_table"),
+            "expected": False,
+        }
+    for key, expected in (
+        ("frame_text_profile", "balanced24"),
+        ("question_context", "hidden"),
+    ):
+        if payload.get(key) not in {None, expected}:
+            mismatches[key] = {"observed": payload.get(key), "expected": expected}
+    if mismatches:
+        raise ValueError(f"base repository is not accepted Balanced24: {mismatches}")
+    payload = dict(payload)
+    payload["legacy_missing_fields_inferred_from_exact_prompt"] = any(
+        payload.get(key) is None for key in ("frame_text_profile", "question_context")
+    )
+    payload["frame_text_profile"] = "balanced24"
+    payload["question_context"] = "hidden"
+    return payload, path
+
+
 def resolve_prebuilt_cost_ledger(directory: Path) -> Path:
     """Resolve one canonical Text ledger without double-reading composed shards."""
     direct = directory / "cost_ledger.jsonl"
@@ -954,11 +1101,12 @@ def import_prebuilt_frame_text_writer_cost(
     model_id: str,
     video_id: str,
     frame_ids: list[str],
+    selected_times: list[float],
     selected_times_sha256: str,
     timestamp_manifest_sha256: str,
     out_dir: Path,
 ) -> None:
-    """Charge the exact canonical Text writer once in a joint-input run.
+    """Charge exact prebuilt Text-construction model calls once in a derived run.
 
     A joint run reads the already frozen Text bytes so every compared condition
     receives identical language.  The writer is still part of construction and
@@ -969,6 +1117,8 @@ def import_prebuilt_frame_text_writer_cost(
     allowed_notes = (
         "Question-blind frame-level text write:",
         "Frame-level text repair for source indices omitted",
+        "Question-blind global-summary text write",
+        "Imported measured canonical Text construction:",
     )
     writer_rows = [
         row
@@ -986,15 +1136,63 @@ def import_prebuilt_frame_text_writer_cost(
         )
     if any(str(row.get("error") or "") for row in writer_rows):
         raise ValueError(f"canonical Text writer contains failed calls for {video_id}")
-    observed_frame_ids = {
-        str(frame_id)
-        for row in writer_rows
-        for frame_id in row.get("unique_frame_ids", [])
-    }
-    if observed_frame_ids != set(frame_ids):
+    if len(frame_ids) != len(selected_times):
+        raise ValueError("current frame IDs and selected times have different lengths")
+
+    # Historical accepted runs used
+    #   <video>:controlled:<index>:<time>
+    # while current runs add the timestamp-set hash and resolution before the
+    # same <index>:<time> suffix.  Compare the stable source-frame identity and
+    # normalize imported events to the current IDs; a raw string comparison
+    # would reject byte-identical frame selections solely because provenance
+    # became more detailed later.
+    row_indices: list[list[int]] = []
+    covered_indices: set[int] = set()
+    for row in writer_rows:
+        source_ids = [str(value) for value in row.get("unique_frame_ids", [])]
+        source_times = row.get("selected_times")
+        if not source_ids or not isinstance(source_times, list):
+            raise ValueError(
+                f"canonical Text writer lacks frame identity for {video_id}"
+            )
+        if len(source_ids) != len(source_times):
+            raise ValueError(
+                f"canonical Text writer ID/time count mismatch for {video_id}"
+            )
+        indices = []
+        for source_id, source_time in zip(source_ids, source_times):
+            parts = source_id.rsplit(":", 2)
+            if len(parts) != 3:
+                raise ValueError(f"malformed canonical frame ID: {source_id}")
+            try:
+                index = int(parts[-2])
+                id_time = float(parts[-1])
+                ledger_time = float(source_time)
+            except (TypeError, ValueError) as exc:
+                raise ValueError(f"malformed canonical frame identity: {source_id}") from exc
+            if not 0 <= index < len(frame_ids):
+                raise ValueError(f"canonical frame index is out of range: {source_id}")
+            expected_time = float(selected_times[index])
+            if not math.isclose(id_time, expected_time, rel_tol=0.0, abs_tol=1e-5):
+                raise ValueError(
+                    "canonical Text frame-ID timestamp changed: "
+                    f"video={video_id} index={index} source={id_time} current={expected_time}"
+                )
+            if not math.isclose(
+                ledger_time, expected_time, rel_tol=0.0, abs_tol=1e-6
+            ):
+                raise ValueError(
+                    "canonical Text selected timestamp changed: "
+                    f"video={video_id} index={index} source={ledger_time} "
+                    f"current={expected_time}"
+                )
+            indices.append(index)
+            covered_indices.add(index)
+        row_indices.append(indices)
+    if covered_indices != set(range(len(frame_ids))):
         raise ValueError(
-            "canonical Text writer did not use the joint run's exact selected frames: "
-            f"video={video_id} expected={len(frame_ids)} observed={len(observed_frame_ids)}"
+            "canonical Text writer did not cover the current selected frames: "
+            f"video={video_id} expected={len(frame_ids)} observed={len(covered_indices)}"
         )
 
     reserved = {
@@ -1016,7 +1214,7 @@ def import_prebuilt_frame_text_writer_cost(
         1,
     )
     imported = []
-    for source_row in writer_rows:
+    for source_row, indices in zip(writer_rows, row_indices):
         extras = {
             key: value for key, value in source_row.items() if key not in reserved
         }
@@ -1037,7 +1235,7 @@ def import_prebuilt_frame_text_writer_cost(
                 visual_tokens=int(source_row.get("visual_tokens") or 0),
                 decoded_frames=int(source_row.get("decoded_frames") or 0),
                 repeated_frames=int(source_row.get("repeated_frames") or 0),
-                unique_frame_ids=[str(value) for value in source_row.get("unique_frame_ids", [])],
+                unique_frame_ids=[frame_ids[index] for index in indices],
                 raw_video_seconds_read=float(source_row.get("raw_video_seconds_read") or 0),
                 latency_s=float(source_row.get("latency_s") or 0),
                 active_gpu_count=int(source_row.get("gpu_count") or 0),
@@ -1067,6 +1265,336 @@ def import_prebuilt_frame_text_writer_cost(
             "timestamp_manifest_sha256": timestamp_manifest_sha256,
         },
     )
+
+
+GLOBAL_SUMMARY_PREFIX = "Global summary |"
+COMPACT_FRAME_HEADER = (
+    "Compact frame table | F/U/UT: frame<TAB>entities<TAB>action/state<TAB>visible text; "
+    "R: frame<TAB>verbatim source payload"
+)
+STANDARD_FRAME_FIELDS = re.compile(
+    r"^Frame\s+(\d+)\s*\|\s*entities:\s*(.*?)\s*\|\s*"
+    r"action/state:\s*(.*?)\s*\|\s*visible text:\s*(.*?)\s*$",
+    re.IGNORECASE,
+)
+UNLABELED_FRAME_FIELDS = re.compile(
+    r"^Frame\s+(\d+)\s*\|\s*entities:\s*(.*?)\s*\|\s*"
+    r"(.*?)\s*\|\s*(.*?)(\s*\|)?\s*$",
+    re.IGNORECASE,
+)
+
+
+def normalize_global_summary(text: str, max_words: int) -> str:
+    """Validate one bounded summary line and normalize whitespace only."""
+    lines = [line.strip() for line in text.splitlines() if line.strip()]
+    if len(lines) != 1 or not lines[0].startswith(GLOBAL_SUMMARY_PREFIX):
+        raise ValueError(
+            "global-summary schema violation: expected exactly one physical line "
+            f"starting with {GLOBAL_SUMMARY_PREFIX!r}; observed={lines[:3]}"
+        )
+    prefix, payload = lines[0].split("|", 1)
+    payload = " ".join(payload.split())
+    if prefix.strip() != "Global summary" or not payload:
+        raise ValueError("global-summary payload is empty or has the wrong prefix")
+    normalized = f"{GLOBAL_SUMMARY_PREFIX} {payload}"
+    words = len(normalized.split())
+    if words > max_words:
+        raise ValueError(
+            f"global summary exceeds its {max_words}-word limit: observed={words}"
+        )
+    encoded_bytes = len(normalized.encode("utf-8"))
+    if encoded_bytes > GLOBAL_SUMMARY_BYTE_LIMIT:
+        raise ValueError(
+            "global summary exceeds its UTF-8 byte limit: "
+            f"observed={encoded_bytes} limit={GLOBAL_SUMMARY_BYTE_LIMIT}"
+        )
+    return normalized
+
+
+def split_frame_text_repository(text: str) -> tuple[str | None, str]:
+    """Separate an optional global-summary line from frame-level records."""
+    lines = [line.strip() for line in text.splitlines() if line.strip()]
+    summaries = [line for line in lines if line.startswith(GLOBAL_SUMMARY_PREFIX)]
+    frame_lines = [line for line in lines if not line.startswith(GLOBAL_SUMMARY_PREFIX)]
+    if len(summaries) > 1:
+        raise ValueError(f"repository contains multiple global summaries: {summaries[:2]}")
+    return (summaries[0] if summaries else None), "\n".join(frame_lines)
+
+
+def parse_standard_frame_fields(
+    frame_text: str, expected_indices: list[int]
+) -> list[tuple[str, int, str, str, str]]:
+    lines = validate_frame_level_entries(frame_text, expected_indices)
+    records = []
+    for line in lines:
+        match = STANDARD_FRAME_FIELDS.fullmatch(line)
+        if match is not None:
+            records.append((
+                "F",
+                int(match.group(1)),
+                match.group(2).strip(),
+                match.group(3).strip(),
+                match.group(4).strip(),
+            ))
+            continue
+        match = UNLABELED_FRAME_FIELDS.fullmatch(line)
+        if match is not None:
+            records.append((
+                "UT" if match.group(5) else "U",
+                int(match.group(1)),
+                match.group(2).strip(),
+                match.group(3).strip(),
+                match.group(4).strip(),
+            ))
+            continue
+        index, payload = line.split("|", 1)
+        records.append(("R", int(index.split()[-1]), payload.strip(), "", ""))
+    return records
+
+
+def compact_escape(value: str) -> str:
+    if not value:
+        return "\\e"
+    return value.replace("\\", "\\\\").replace("\t", "\\t")
+
+
+def compact_unescape(value: str) -> str:
+    output = []
+    index = 0
+    while index < len(value):
+        if value[index] != "\\":
+            output.append(value[index])
+            index += 1
+            continue
+        if index + 1 >= len(value) or value[index + 1] not in {"\\", "t", "e"}:
+            raise ValueError(f"invalid compact-table escape: {value}")
+        escape = value[index + 1]
+        if escape == "t":
+            output.append("\t")
+        elif escape == "\\":
+            output.append("\\")
+        elif value != "\\e":
+            raise ValueError(f"empty-field escape must occupy the whole cell: {value}")
+        index += 2
+    return "".join(output)
+
+
+def restore_source_frame_line(record: tuple[str, int, str, str, str]) -> str:
+    kind, index, first, second, third = record
+    if kind == "F":
+        return (
+            f"Frame {index} | entities: {first} | action/state: {second} | "
+            f"visible text: {third}"
+        )
+    if kind in {"U", "UT"}:
+        suffix = " |" if kind == "UT" else ""
+        return f"Frame {index} | entities: {first} | {second} | {third}{suffix}"
+    if kind == "R":
+        return f"Frame {index} | {first}"
+    raise ValueError(f"unknown compact frame-table row type: {kind}")
+
+
+def compact_frame_table(
+    frame_text: str, expected_indices: list[int]
+) -> tuple[str, list[tuple[str, int, str, str, str]]]:
+    """Remove repeated field labels while preserving every factual field byte-for-byte."""
+    records = parse_standard_frame_fields(frame_text, expected_indices)
+    lines = [COMPACT_FRAME_HEADER]
+    for kind, index, first, second, third in records:
+        cells = [kind, str(index), compact_escape(first)]
+        if kind != "R":
+            cells.extend((compact_escape(second), compact_escape(third)))
+        lines.append("\t".join(cells))
+    compact = "\n".join(lines)
+    if parse_compact_frame_table(compact, expected_indices) != records:
+        raise AssertionError("compact frame-table round trip changed factual fields")
+    return compact, records
+
+
+def parse_compact_frame_table(
+    frame_text: str, expected_indices: list[int]
+) -> list[tuple[str, int, str, str, str]]:
+    lines = [line.strip() for line in frame_text.splitlines() if line.strip()]
+    if not lines or lines[0] != COMPACT_FRAME_HEADER:
+        raise ValueError("compact frame table is missing its exact column header")
+    records = []
+    for line in lines[1:]:
+        fields = line.split("\t")
+        if (
+            len(fields) not in {3, 5}
+            or fields[0] not in {"F", "U", "UT", "R"}
+            or not fields[1].isdigit()
+            or (fields[0] == "R") != (len(fields) == 3)
+        ):
+            raise ValueError(f"malformed compact frame-table row: {line}")
+        decoded = [compact_unescape(field) for field in fields[2:]]
+        if fields[0] == "R" and not decoded[0]:
+            raise ValueError(f"empty compact frame-table payload: {line}")
+        decoded.extend([""] * (3 - len(decoded)))
+        records.append((fields[0], int(fields[1]), *decoded))
+    observed = [record[1] for record in records]
+    if observed != expected_indices:
+        raise ValueError(
+            "compact frame-table index mismatch: "
+            f"expected={expected_indices} observed={observed}"
+        )
+    return records
+
+
+def write_global_summary(
+    *,
+    client: OpenAIVLMClient,
+    profile: str,
+    summary_writer_tokens: int,
+    paths: list[str],
+    times: list[float],
+    visual_input_format: str,
+    visual_token_counter: str,
+    visual_model_path: Path,
+    visual_max_pixels: int | None,
+    stop_strings: list[str],
+    stop_token_ids: list[int],
+    ledger_path: Path,
+    run_id: str,
+    commit: str,
+    method: str,
+    dataset_version: str,
+    model_id: str,
+    video_id: str,
+    frame_ids: list[str],
+    out_dir: Path,
+) -> str:
+    spec = frame_text_summary_spec(profile)
+    if spec is None:
+        raise ValueError(f"profile does not request a global summary: {profile}")
+    summary_word_limit = int(spec["summary_word_limit"])
+    base_prompt = (
+        f"{global_summary_write_prompt(profile)}\n"
+        "When useful, cite supporting source frames or ranges using their indices.\n"
+        f"Required source-frame indices: {', '.join(map(str, range(len(paths))))}."
+    )
+    last_error = ""
+    for attempt in range(4):
+        prompt = base_prompt
+        if attempt:
+            prompt += (
+                "\nThis is a repair request. Your previous response violated the "
+                f"one-line schema or the {summary_word_limit}-word limit. Return only "
+                "one shorter, complete `Global summary | ...` line."
+            )
+        messages = [{
+            "role": "user",
+            "content": [
+                {"type": "text", "text": prompt},
+                *media_content(
+                    paths,
+                    list(range(len(paths))),
+                    times,
+                    visual_input_format,
+                ),
+            ],
+        }]
+        started = time.perf_counter()
+        response = client.chat(
+            messages,
+            max_tokens=summary_writer_tokens,
+            temperature=0.0,
+            stop=stop_strings or None,
+            stop_token_ids=stop_token_ids or None,
+        )
+        latency = time.perf_counter() - started
+        usage = response.get("usage") or {}
+        summary_visual_tokens = (
+            visual_tokens(paths, visual_model_path, visual_max_pixels)
+            if visual_token_counter == "qwen"
+            else 0
+        )
+        CostLedger(
+            ledger_path,
+            LedgerContext(
+                run_id,
+                commit,
+                method,
+                dataset_version,
+                video_id,
+                "__video_write__",
+                1,
+            ),
+        ).append(
+            phase="write",
+            model_id=model_id,
+            cache_status="miss",
+            input_text_tokens=max(
+                0, int(usage.get("prompt_tokens") or 0) - summary_visual_tokens
+            ),
+            output_text_tokens=int(usage.get("completion_tokens") or 0),
+            visual_tokens=summary_visual_tokens,
+            decoded_frames=0,
+            unique_frame_ids=frame_ids,
+            latency_s=latency,
+            peak_vram_bytes=sampled_visible_gpu_memory_bytes(),
+            cached_prompt_tokens=cached_prompt_tokens(usage),
+            selected_times=times,
+            measurement_note=(
+                "Question-blind global-summary text write over the same fixed "
+                "source frames."
+            ),
+            frame_text_profile=profile,
+            summary_attempt=attempt,
+            summary_word_limit=summary_word_limit,
+        )
+        try:
+            summary = normalize_global_summary(str(response["text"]), summary_word_limit)
+            error = ""
+        except ValueError as exc:
+            summary = ""
+            error = str(exc)
+        append_jsonl(
+            out_dir / "frame_summary_writer.jsonl",
+            {
+                "video_uid": video_id,
+                "attempt": attempt,
+                "accepted": bool(summary),
+                "error": error,
+                "raw_response": response["text"],
+                "summary_word_limit": summary_word_limit,
+                "summary_byte_limit": GLOBAL_SUMMARY_BYTE_LIMIT,
+                "summary_words": len(summary.split()) if summary else None,
+            },
+        )
+        if summary:
+            (out_dir / f"{video_id}.global_summary.txt").write_text(
+                summary + "\n", encoding="utf-8"
+            )
+            return summary
+        last_error = error
+    raise ValueError(
+        "global-summary writer repair exhausted: "
+        f"video={video_id} last_error={last_error}"
+    )
+
+
+def validate_frame_text_repository(
+    text: str,
+    expected_indices: list[int],
+    *,
+    require_global_summary: bool,
+    summary_word_limit: int | None = None,
+    compact_frame_table_required: bool = False,
+) -> tuple[str | None, list[str]]:
+    summary, frame_text = split_frame_text_repository(text)
+    if require_global_summary:
+        if summary is None or summary_word_limit is None:
+            raise ValueError("repository is missing its required global summary")
+        summary = normalize_global_summary(summary, summary_word_limit)
+    elif summary is not None:
+        raise ValueError("frame-only repository unexpectedly contains a global summary")
+    if compact_frame_table_required:
+        records = parse_compact_frame_table(frame_text, expected_indices)
+        frame_lines = [restore_source_frame_line(record) for record in records]
+    else:
+        frame_lines = validate_frame_level_entries(frame_text, expected_indices)
+    return summary, frame_lines
 
 
 def validate_frame_level_entries(text: str, expected_indices: list[int]) -> list[str]:
@@ -1104,7 +1632,14 @@ def format_clock_time(seconds: float) -> str:
     return f"{hours:02d}:{minutes:02d}:{remainder:06.3f}"
 
 
-def attach_frame_times(repository: str, times: list[float]) -> str:
+def attach_frame_times(
+    repository: str,
+    times: list[float],
+    *,
+    require_global_summary: bool = False,
+    summary_word_limit: int | None = None,
+    compact_frame_table_required: bool = False,
+) -> str:
     """Attach deterministic absolute time metadata to a validated frame repository.
 
     The writer's semantic output is reused verbatim.  Only sampler metadata that
@@ -1112,13 +1647,35 @@ def attach_frame_times(repository: str, times: list[float]) -> str:
     resolve question timestamps without asking the writer to describe more facts.
     """
     expected_indices = list(range(len(times)))
-    lines = validate_frame_level_entries(repository, expected_indices)
+    summary, frame_text = split_frame_text_repository(repository)
+    if require_global_summary:
+        if summary is None or summary_word_limit is None:
+            raise ValueError("repository is missing its required global summary")
+        summary = normalize_global_summary(summary, summary_word_limit)
+    elif summary is not None:
+        raise ValueError("frame-only repository unexpectedly contains a global summary")
     timed_lines: list[str] = []
-    for index, (line, stamp) in enumerate(zip(lines, times)):
-        _, payload = line.split("|", 1)
+    if compact_frame_table_required:
         timed_lines.append(
-            f"Frame {index} | time: {float(stamp):.3f}s | {payload.strip()}"
+            "Compact frame table | F/U/UT: frame<TAB>time<TAB>entities<TAB>action/state<TAB>visible text; "
+            "R: frame<TAB>time<TAB>verbatim source payload"
         )
+        records = parse_compact_frame_table(frame_text, expected_indices)
+        for record, stamp in zip(records, times):
+            kind, index, first, second, third = record
+            cells = [kind, str(index), f"{float(stamp):.3f}s", compact_escape(first)]
+            if kind != "R":
+                cells.extend((compact_escape(second), compact_escape(third)))
+            timed_lines.append("\t".join(cells))
+    else:
+        lines = validate_frame_level_entries(frame_text, expected_indices)
+        for index, (line, stamp) in enumerate(zip(lines, times)):
+            _, payload = line.split("|", 1)
+            timed_lines.append(
+                f"Frame {index} | time: {float(stamp):.3f}s | {payload.strip()}"
+            )
+    if summary is not None:
+        return "\n".join([summary, *timed_lines])
     return "\n".join(timed_lines)
 
 
@@ -1595,6 +2152,22 @@ def parse_args() -> argparse.Namespace:
             "files from this directory and rerun only the complete answer phase."
         ),
     )
+    parser.add_argument(
+        "--base-frame-repository-dir",
+        type=Path,
+        help=(
+            "Accepted Balanced24 repository used byte-for-byte by derived Text "
+            "profiles. Its measured writer cost is imported into the new condition."
+        ),
+    )
+    parser.add_argument(
+        "--prebuilt-summary-dir",
+        type=Path,
+        help=(
+            "Accepted hybrid_added run whose exact per-video summary and measured "
+            "construction calls are reused by hybrid_fixed."
+        ),
+    )
     parser.add_argument("--workspace-root", type=Path, required=True)
     parser.add_argument("--base-url", required=True)
     parser.add_argument("--model", required=True)
@@ -1627,13 +2200,20 @@ def parse_args() -> argparse.Namespace:
         help="Completion-token ceiling for each eight-frame, frame-level writer call.",
     )
     parser.add_argument(
+        "--summary-writer-tokens",
+        type=int,
+        default=384,
+        help="Completion-token ceiling for the one-per-video global-summary call.",
+    )
+    parser.add_argument(
         "--frame-text-profile",
         choices=tuple(FRAME_LEVEL_WRITE_PROMPTS),
         default="balanced24",
         help=(
             "Frame-level text-writing instruction. balanced24 reproduces the formal "
             "condition; expanded48 changes only the requested capacity; detail24 keeps "
-            "the 24-word limit but prioritizes fine visual details."
+            "the 24-word limit but prioritizes fine visual details; hybrid_fixed and "
+            "hybrid_added add a bounded global summary with fixed or added capacity."
         ),
     )
     parser.add_argument(
@@ -1711,12 +2291,18 @@ def main() -> None:
     frame_level_write_prompt, frame_level_context_write_prompt = (
         frame_level_write_prompts(args.frame_text_profile)
     )
+    summary_spec = frame_text_summary_spec(args.frame_text_profile)
+    derived_spec = frame_text_derived_spec(args.frame_text_profile)
+    base_schema_acceptance: dict | None = None
+    base_schema_acceptance_path: Path | None = None
     if not 1 <= args.selection_frames <= args.num_frames:
         raise ValueError("selection_frames must be between 1 and num_frames")
     if args.answer_frames < 1:
         raise ValueError("answer_frames must be positive")
     if args.answer_repair_attempts < 0:
         raise ValueError("answer_repair_attempts must be non-negative")
+    if args.summary_writer_tokens < 1:
+        raise ValueError("summary_writer_tokens must be positive")
     if args.answer_repair_json_schema and args.disable_json_response_format:
         raise ValueError(
             "answer_repair_json_schema requires JSON response-format support"
@@ -1749,6 +2335,44 @@ def main() -> None:
             )
         if not args.prebuilt_repository_dir.is_dir():
             raise FileNotFoundError(args.prebuilt_repository_dir)
+    if derived_spec is not None:
+        if args.mode != "write_once_frame_text":
+            raise ValueError(
+                "derived Text profiles currently require --mode write_once_frame_text"
+            )
+        if args.prebuilt_repository_dir is not None:
+            raise ValueError(
+                "derived Text profiles use --base-frame-repository-dir, not the "
+                "answer-only --prebuilt-repository-dir"
+            )
+        if args.base_frame_repository_dir is None:
+            raise ValueError(
+                f"{args.frame_text_profile} requires --base-frame-repository-dir"
+            )
+        if not args.base_frame_repository_dir.is_dir():
+            raise FileNotFoundError(args.base_frame_repository_dir)
+        base_schema_acceptance, base_schema_acceptance_path = (
+            load_base_frame_text_acceptance(args.base_frame_repository_dir)
+        )
+        if args.num_frames != int(base_schema_acceptance["source_frames_per_video"]):
+            raise ValueError("derived profile frame count differs from Balanced24 source")
+        if args.writer_chunk_size != int(base_schema_acceptance["writer_chunk_size"]):
+            raise ValueError("derived profile writer chunk size differs from source")
+        if args.frame_writer_tokens != int(base_schema_acceptance["frame_writer_tokens"]):
+            raise ValueError("derived profile frame-writer token setting differs from source")
+        if args.frame_text_profile == "hybrid_fixed":
+            if args.prebuilt_summary_dir is None:
+                raise ValueError("hybrid_fixed requires --prebuilt-summary-dir")
+            if not args.prebuilt_summary_dir.is_dir():
+                raise FileNotFoundError(args.prebuilt_summary_dir)
+        elif args.prebuilt_summary_dir is not None:
+            raise ValueError(
+                "--prebuilt-summary-dir is accepted only for hybrid_fixed"
+            )
+    elif args.base_frame_repository_dir is not None or args.prebuilt_summary_dir is not None:
+        raise ValueError(
+            "base frame repositories and prebuilt summaries are only for derived Text profiles"
+        )
     if args.frame_max_side is not None and args.frame_max_side <= 0:
         raise ValueError("frame_max_side must be positive")
     if args.include_hdepic_bbox_reference_frame and not args.expand_official_visual_references:
@@ -1981,6 +2605,7 @@ def main() -> None:
         repository = ""
         answer_repository = ""
         repository_path: Path | None = None
+        base_repository_path: Path | None = None
         shared_paths: list[str] = []
 
         if args.mode in {
@@ -2032,7 +2657,16 @@ def main() -> None:
                 args.prebuilt_repository_dir, video_id
             )
             repository = repository_path.read_text(encoding="utf-8").strip()
-            validate_frame_level_entries(repository, list(range(args.num_frames)))
+            validate_frame_text_repository(
+                repository,
+                list(range(args.num_frames)),
+                require_global_summary=summary_spec is not None,
+                summary_word_limit=(
+                    int(summary_spec["summary_word_limit"])
+                    if summary_spec is not None
+                    else None
+                ),
+            )
             if args.mode in FRAME_TEXT_HYBRID_MODES:
                 import_prebuilt_frame_text_writer_cost(
                     directory=args.prebuilt_repository_dir,
@@ -2044,10 +2678,157 @@ def main() -> None:
                     model_id=args.model,
                     video_id=video_id,
                     frame_ids=frame_ids,
+                    selected_times=times,
                     selected_times_sha256=selected_times_sha,
                     timestamp_manifest_sha256=timestamp_manifest_sha,
                     out_dir=args.out_dir,
                 )
+        elif derived_spec is not None:
+            if args.base_frame_repository_dir is None:
+                raise AssertionError("validated derived profile lost its base repository")
+            base_repository_path = resolve_prebuilt_repository(
+                args.base_frame_repository_dir, video_id
+            )
+            base_repository = base_repository_path.read_text(encoding="utf-8").strip()
+            _, base_frame_lines = validate_frame_text_repository(
+                base_repository,
+                list(range(args.num_frames)),
+                require_global_summary=False,
+            )
+            base_frame_text = "\n".join(base_frame_lines)
+            construction_source = (
+                args.prebuilt_summary_dir
+                if args.frame_text_profile == "hybrid_fixed"
+                else args.base_frame_repository_dir
+            )
+            if construction_source is None:
+                raise AssertionError("derived profile lost its construction source")
+            import_prebuilt_frame_text_writer_cost(
+                directory=construction_source,
+                ledger_path=ledger_path,
+                run_id=args.run_id,
+                commit=commit,
+                method=method,
+                dataset_version=args.dataset_version,
+                model_id=args.model,
+                video_id=video_id,
+                frame_ids=frame_ids,
+                selected_times=times,
+                selected_times_sha256=selected_times_sha,
+                timestamp_manifest_sha256=timestamp_manifest_sha,
+                out_dir=args.out_dir,
+            )
+            source_records = parse_standard_frame_fields(
+                base_frame_text, list(range(args.num_frames))
+            )
+            if bool(derived_spec["compact_frame_table"]):
+                repository, compact_records = compact_frame_table(
+                    base_frame_text, list(range(args.num_frames))
+                )
+                if compact_records != source_records:
+                    raise AssertionError("lossless compact serialization changed facts")
+            else:
+                repository = base_frame_text
+
+            global_summary = ""
+            summary_source_path = ""
+            if summary_spec is not None:
+                if args.frame_text_profile == "hybrid_fixed":
+                    if args.prebuilt_summary_dir is None:
+                        raise AssertionError("hybrid_fixed lost its prebuilt summary")
+                    summary_path = resolve_prebuilt_global_summary(
+                        args.prebuilt_summary_dir, video_id
+                    )
+                    global_summary = normalize_global_summary(
+                        summary_path.read_text(encoding="utf-8").strip(),
+                        int(summary_spec["summary_word_limit"]),
+                    )
+                    summary_source_path = str(summary_path.resolve())
+                    (args.out_dir / f"{video_id}.global_summary.txt").write_text(
+                        global_summary + "\n", encoding="utf-8"
+                    )
+                else:
+                    global_summary = write_global_summary(
+                        client=client,
+                        profile=args.frame_text_profile,
+                        summary_writer_tokens=args.summary_writer_tokens,
+                        paths=shared_paths,
+                        times=times,
+                        visual_input_format=args.visual_input_format,
+                        visual_token_counter=args.visual_token_counter,
+                        visual_model_path=args.visual_model_path,
+                        visual_max_pixels=args.visual_max_pixels,
+                        stop_strings=args.stop_string,
+                        stop_token_ids=args.stop_token_id,
+                        ledger_path=ledger_path,
+                        run_id=args.run_id,
+                        commit=commit,
+                        method=method,
+                        dataset_version=args.dataset_version,
+                        model_id=args.model,
+                        video_id=video_id,
+                        frame_ids=frame_ids,
+                        out_dir=args.out_dir,
+                    )
+                    summary_source_path = str(
+                        (args.out_dir / f"{video_id}.global_summary.txt").resolve()
+                    )
+                repository = f"{global_summary}\n{repository}"
+
+            validate_frame_text_repository(
+                repository,
+                list(range(args.num_frames)),
+                require_global_summary=summary_spec is not None,
+                summary_word_limit=(
+                    int(summary_spec["summary_word_limit"])
+                    if summary_spec is not None
+                    else None
+                ),
+                compact_frame_table_required=bool(
+                    derived_spec["compact_frame_table"]
+                ),
+            )
+            (args.out_dir / f"{video_id}.repository.txt").write_text(
+                repository + "\n", encoding="utf-8"
+            )
+            append_jsonl(
+                args.out_dir / "derived_text_provenance.jsonl",
+                {
+                    "video_uid": video_id,
+                    "profile": args.frame_text_profile,
+                    "base_repository_path": str(base_repository_path.resolve()),
+                    "base_repository_sha256": hashlib.sha256(
+                        base_repository.encode("utf-8")
+                    ).hexdigest(),
+                    "base_frame_text_sha256": hashlib.sha256(
+                        base_frame_text.encode("utf-8")
+                    ).hexdigest(),
+                    "derived_repository_sha256": hashlib.sha256(
+                        repository.encode("utf-8")
+                    ).hexdigest(),
+                    "source_fact_tuples_sha256": hashlib.sha256(
+                        json.dumps(source_records, ensure_ascii=False).encode("utf-8")
+                    ).hexdigest(),
+                    "facts_preserved_exactly": True,
+                    "base_frame_lines_reused_verbatim": not bool(
+                        derived_spec["compact_frame_table"]
+                    ),
+                    "compact_frame_table": bool(
+                        derived_spec["compact_frame_table"]
+                    ),
+                    "global_summary": summary_spec is not None,
+                    "global_summary_sha256": (
+                        hashlib.sha256(global_summary.encode("utf-8")).hexdigest()
+                        if global_summary
+                        else ""
+                    ),
+                    "global_summary_source_path": summary_source_path,
+                    "base_semantic_words": len(base_repository.split()),
+                    "derived_semantic_words": len(repository.split()),
+                    "base_semantic_bytes": len(base_repository.encode("utf-8")),
+                    "derived_semantic_bytes": len(repository.encode("utf-8")),
+                },
+            )
         elif args.mode == "write_once_text" or args.mode in FRAME_TEXT_WRITE_ONCE_MODES:
             frame_level = args.mode in FRAME_TEXT_WRITE_ONCE_MODES
             masked_frame_level = args.mode == "write_once_frame_text_masked"
@@ -2209,7 +2990,21 @@ def main() -> None:
 
         answer_repository = repository
         if args.mode in FRAME_TEXT_WRITE_ONCE_MODES:
-            answer_repository = attach_frame_times(repository, times)
+            answer_repository = attach_frame_times(
+                repository,
+                times,
+                require_global_summary=summary_spec is not None,
+                summary_word_limit=(
+                    int(summary_spec["summary_word_limit"])
+                    if summary_spec is not None
+                    else None
+                ),
+                compact_frame_table_required=(
+                    bool(derived_spec["compact_frame_table"])
+                    if derived_spec is not None
+                    else False
+                ),
+            )
             timed_path = args.out_dir / f"{video_id}.repository_with_time.txt"
             timed_path.write_text(answer_repository + "\n", encoding="utf-8")
             semantic_bytes = len(repository.encode("utf-8"))
@@ -2230,6 +3025,45 @@ def main() -> None:
                 "timestamped_repository_path": str(timed_path.resolve()),
             }
             append_jsonl(args.out_dir / "frame_time_metadata.jsonl", metadata_row)
+            if derived_spec is not None:
+                if args.base_frame_repository_dir is None:
+                    raise AssertionError("derived profile lost its base directory")
+                if base_repository_path is None or not base_repository:
+                    raise AssertionError("derived profile lost its base repository")
+                # Several accepted Balanced24 roots predate persisted timestamped
+                # repository files.  Reconstruct the exact matched control input
+                # from the same semantic bytes and the current fixed timestamps
+                # instead of depending on a later answer-only output directory.
+                base_answer_repository = attach_frame_times(base_repository, times)
+                storage_row = {
+                    "video_uid": video_id,
+                    "profile": args.frame_text_profile,
+                    "base_repository_path": str(base_repository_path.resolve()),
+                    "base_timestamped_repository_reconstructed": True,
+                    "base_answer_words": len(base_answer_repository.split()),
+                    "derived_answer_words": len(answer_repository.split()),
+                    "base_answer_bytes": len(
+                        base_answer_repository.encode("utf-8")
+                    ),
+                    "derived_answer_bytes": len(answer_repository.encode("utf-8")),
+                    "no_larger_than_base": (
+                        len(answer_repository.split())
+                        <= len(base_answer_repository.split())
+                        and len(answer_repository.encode("utf-8"))
+                        <= len(base_answer_repository.encode("utf-8"))
+                    ),
+                }
+                if (
+                    args.frame_text_profile == "hybrid_fixed"
+                    and storage_row["no_larger_than_base"] is not True
+                ):
+                    raise RuntimeError(
+                        "hybrid_fixed exceeded its per-video timestamped Balanced24 "
+                        f"budget: {storage_row}"
+                    )
+                append_jsonl(
+                    args.out_dir / "derived_storage_provenance.jsonl", storage_row
+                )
             if repository_path is not None:
                 append_jsonl(
                     args.out_dir / "prebuilt_repository_provenance.jsonl",
@@ -3200,6 +4034,12 @@ def main() -> None:
                     stop=args.stop_string or None,
                     stop_token_ids=args.stop_token_id or None,
                 )
+                initial_usage = response.get("usage") or {}
+                initial_prompt_tokens = int(initial_usage.get("prompt_tokens") or 0)
+                initial_visual_tokens = tokens
+                initial_input_text_tokens = max(
+                    0, initial_prompt_tokens - initial_visual_tokens
+                )
                 parse_frame_count = (
                     len(answer_times) if args.mode == "coarse_vlm_local_selection" else args.num_frames
                 )
@@ -3309,6 +4149,9 @@ def main() -> None:
                         else "Matched controlled answer with input-mappable source-frame citations."
                     ),
                     answer_request_count=answer_request_count,
+                    initial_prompt_tokens=initial_prompt_tokens,
+                    initial_input_text_tokens=initial_input_text_tokens,
+                    initial_visual_tokens=initial_visual_tokens,
                     observation_policy=result_observation_policy,
                     timestamp_manifest_sha256=timestamp_manifest_sha,
                     query_selection_manifest_sha256=query_selection_manifest_sha,
@@ -3350,6 +4193,9 @@ def main() -> None:
                     "conditioned_notes": conditioned_notes,
                     "blind_replay_repository": blind_replay_repository,
                     "cached_prompt_tokens": reused_prompt_tokens,
+                    "initial_prompt_tokens": initial_prompt_tokens,
+                    "initial_input_text_tokens": initial_input_text_tokens,
+                    "initial_visual_tokens": initial_visual_tokens,
                     "state_budget_frames": (
                         args.num_frames
                         if args.mode in STATE_CACHE_MODES
@@ -3409,6 +4255,17 @@ def main() -> None:
                         else "json_object"
                     ),
                     "frame_max_side": args.frame_max_side,
+                    "frame_text_profile": (
+                        args.frame_text_profile
+                        if args.mode in FRAME_TEXT_WRITE_ONCE_MODES
+                        else ""
+                    ),
+                    "text_global_summary": summary_spec is not None,
+                    "text_compact_frame_table": (
+                        bool(derived_spec["compact_frame_table"])
+                        if derived_spec is not None
+                        else False
+                    ),
                     "error": error,
                 })
                 failures += int(bool(error))
@@ -3526,7 +4383,16 @@ def main() -> None:
         args.mode in FRAME_TEXT_WRITE_ONCE_MODES
         and args.prebuilt_repository_dir is None
     ):
-        writer_calls_per_video = (args.num_frames + args.writer_chunk_size - 1) // args.writer_chunk_size
+        writer_calls_per_video = (
+            0
+            if derived_spec is not None
+            else (args.num_frames + args.writer_chunk_size - 1) // args.writer_chunk_size
+        )
+        summary_prompt = (
+            global_summary_write_prompt(args.frame_text_profile)
+            if summary_spec is not None
+            else ""
+        )
         (args.out_dir / "frame_text_schema_acceptance.json").write_text(
             json.dumps({
                 "accepted": True,
@@ -3537,8 +4403,51 @@ def main() -> None:
                 "validated_entries_per_video": args.num_frames,
                 "total_validated_entries": len(grouped) * args.num_frames,
                 "frame_writer_tokens": args.frame_writer_tokens,
+                "summary_writer_tokens": args.summary_writer_tokens,
                 "frame_max_side": args.frame_max_side,
                 "frame_text_profile": args.frame_text_profile,
+                "global_summary": summary_spec is not None,
+                "compact_frame_table": (
+                    bool(derived_spec["compact_frame_table"])
+                    if derived_spec is not None
+                    else False
+                ),
+                "base_frame_repository_reused": derived_spec is not None,
+                "base_source_schema_path": (
+                    str(base_schema_acceptance_path.resolve())
+                    if base_schema_acceptance_path is not None
+                    else ""
+                ),
+                "base_source_schema_sha256": (
+                    hashlib.sha256(base_schema_acceptance_path.read_bytes()).hexdigest()
+                    if base_schema_acceptance_path is not None
+                    else ""
+                ),
+                "base_source_frame_writer_tokens": (
+                    int(base_schema_acceptance["frame_writer_tokens"])
+                    if base_schema_acceptance is not None
+                    else None
+                ),
+                "base_source_legacy_fields_inferred_from_exact_prompt": (
+                    bool(base_schema_acceptance[
+                        "legacy_missing_fields_inferred_from_exact_prompt"
+                    ])
+                    if base_schema_acceptance is not None
+                    else False
+                ),
+                "summary_word_limit": (
+                    int(summary_spec["summary_word_limit"])
+                    if summary_spec is not None
+                    else None
+                ),
+                "summary_byte_limit": (
+                    GLOBAL_SUMMARY_BYTE_LIMIT if summary_spec is not None else None
+                ),
+                "budget_rule": (
+                    str(derived_spec["budget_rule"])
+                    if derived_spec is not None
+                    else ""
+                ),
                 "prompt_sha256": hashlib.sha256(
                     (
                         frame_level_context_write_prompt
@@ -3546,6 +4455,11 @@ def main() -> None:
                         else frame_level_write_prompt
                     ).encode()
                 ).hexdigest(),
+                "summary_prompt_sha256": (
+                    hashlib.sha256(summary_prompt.encode()).hexdigest()
+                    if summary_prompt
+                    else ""
+                ),
                 "question_context": "masked" if args.mode == "write_once_frame_text_masked" else "hidden",
                 "joint_input": (
                     "text+visual"
@@ -3558,6 +4472,203 @@ def main() -> None:
             }, indent=2) + "\n",
             encoding="utf-8",
         )
+        if derived_spec is not None:
+            provenance_rows = read_jsonl(args.out_dir / "derived_text_provenance.jsonl")
+            storage_rows = read_jsonl(
+                args.out_dir / "derived_storage_provenance.jsonl"
+            )
+            provenance_videos = [str(row.get("video_uid") or "") for row in provenance_rows]
+            storage_videos = [str(row.get("video_uid") or "") for row in storage_rows]
+            if (
+                sorted(provenance_videos) != sorted(grouped)
+                or len(provenance_videos) != len(set(provenance_videos))
+                or sorted(storage_videos) != sorted(grouped)
+                or len(storage_videos) != len(set(storage_videos))
+                or not all(row.get("facts_preserved_exactly") is True for row in provenance_rows)
+            ):
+                raise RuntimeError(
+                    "derived Text provenance or fact-preservation coverage failed: "
+                    f"expected={sorted(grouped)} observed={sorted(provenance_videos)}"
+                )
+            if args.frame_text_profile == "hybrid_added" and not all(
+                row.get("base_frame_lines_reused_verbatim") is True
+                for row in provenance_rows
+            ):
+                raise RuntimeError("hybrid_added changed a Balanced24 frame record")
+            if args.frame_text_profile == "hybrid_fixed":
+                oversized = [
+                    str(row["video_uid"])
+                    for row in provenance_rows
+                    if int(row["derived_semantic_words"]) > int(row["base_semantic_words"])
+                    or int(row["derived_semantic_bytes"]) > int(row["base_semantic_bytes"])
+                ]
+                if oversized:
+                    raise RuntimeError(
+                        "hybrid_fixed exceeded its per-video Balanced24 semantic budget: "
+                        f"{oversized}"
+                    )
+            (args.out_dir / "derived_text_acceptance.json").write_text(
+                json.dumps(
+                    {
+                        "accepted": True,
+                        "profile": args.frame_text_profile,
+                        "videos": len(grouped),
+                        "source_frames_per_video": args.num_frames,
+                        "facts_preserved_exactly": True,
+                        "base_frame_lines_reused_verbatim": (
+                            args.frame_text_profile == "hybrid_added"
+                        ),
+                        "compact_frame_table": bool(
+                            derived_spec["compact_frame_table"]
+                        ),
+                        "global_summary": summary_spec is not None,
+                        "no_larger_than_base_semantic_words_and_bytes": (
+                            args.frame_text_profile == "hybrid_fixed"
+                        ),
+                        "budget_rule": str(derived_spec["budget_rule"]),
+                        "base_frame_repository_dir": str(
+                            args.base_frame_repository_dir.resolve()
+                        ),
+                        "prebuilt_summary_dir": (
+                            str(args.prebuilt_summary_dir.resolve())
+                            if args.prebuilt_summary_dir is not None
+                            else ""
+                        ),
+                        "base_semantic_words_by_video": {
+                            str(row["video_uid"]): int(row["base_semantic_words"])
+                            for row in provenance_rows
+                        },
+                        "derived_semantic_words_by_video": {
+                            str(row["video_uid"]): int(row["derived_semantic_words"])
+                            for row in provenance_rows
+                        },
+                        "base_semantic_bytes_by_video": {
+                            str(row["video_uid"]): int(row["base_semantic_bytes"])
+                            for row in provenance_rows
+                        },
+                        "derived_semantic_bytes_by_video": {
+                            str(row["video_uid"]): int(row["derived_semantic_bytes"])
+                            for row in provenance_rows
+                        },
+                        "base_answer_words_by_video": {
+                            str(row["video_uid"]): int(row["base_answer_words"])
+                            for row in storage_rows
+                        },
+                        "derived_answer_words_by_video": {
+                            str(row["video_uid"]): int(row["derived_answer_words"])
+                            for row in storage_rows
+                        },
+                        "base_answer_bytes_by_video": {
+                            str(row["video_uid"]): int(row["base_answer_bytes"])
+                            for row in storage_rows
+                        },
+                        "derived_answer_bytes_by_video": {
+                            str(row["video_uid"]): int(row["derived_answer_bytes"])
+                            for row in storage_rows
+                        },
+                    },
+                    indent=2,
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+        if summary_spec is not None:
+            summary_words_by_video = {}
+            summary_sha_by_video = {}
+            for video_id in sorted(grouped):
+                summary_path = args.out_dir / f"{video_id}.global_summary.txt"
+                summary = normalize_global_summary(
+                    summary_path.read_text(encoding="utf-8").strip(),
+                    int(summary_spec["summary_word_limit"]),
+                )
+                summary_words_by_video[video_id] = len(summary.split())
+                summary_sha_by_video[video_id] = hashlib.sha256(
+                    summary.encode("utf-8")
+                ).hexdigest()
+            writer_rows = (
+                read_jsonl(args.out_dir / "frame_summary_writer.jsonl")
+                if (args.out_dir / "frame_summary_writer.jsonl").is_file()
+                else []
+            )
+            source_summary_acceptance_path: Path | None = None
+            source_summary_acceptance_sha = ""
+            if args.frame_text_profile == "hybrid_fixed":
+                if args.prebuilt_summary_dir is None:
+                    raise AssertionError("hybrid_fixed lost its summary source")
+                source_candidates = [
+                    path
+                    for path in (
+                        args.prebuilt_summary_dir / "frame_summary_acceptance.json",
+                        args.prebuilt_summary_dir / "run" / "frame_summary_acceptance.json",
+                    )
+                    if path.is_file()
+                ]
+                if len(source_candidates) != 1:
+                    raise FileNotFoundError(
+                        "expected exactly one source summary acceptance under "
+                        f"{args.prebuilt_summary_dir}; found={source_candidates}"
+                    )
+                source_summary_acceptance_path = source_candidates[0]
+                source_acceptance = json.loads(
+                    source_summary_acceptance_path.read_text(encoding="utf-8")
+                )
+                if (
+                    source_acceptance.get("accepted") is not True
+                    or source_acceptance.get("profile") != "hybrid_added"
+                    or source_acceptance.get("summary_generated_in_this_run") is not True
+                ):
+                    raise ValueError(
+                        "hybrid_fixed summary source is not an accepted hybrid_added run"
+                    )
+                source_hashes = source_acceptance.get("summary_sha256_by_video") or {}
+                changed = {
+                    video: {"fixed": digest, "source": source_hashes.get(video)}
+                    for video, digest in summary_sha_by_video.items()
+                    if source_hashes.get(video) != digest
+                }
+                if changed:
+                    raise ValueError(
+                        f"hybrid_fixed summary differs from hybrid_added source: {changed}"
+                    )
+                source_summary_acceptance_sha = hashlib.sha256(
+                    source_summary_acceptance_path.read_bytes()
+                ).hexdigest()
+            (args.out_dir / "frame_summary_acceptance.json").write_text(
+                json.dumps(
+                    {
+                        "accepted": True,
+                        "profile": args.frame_text_profile,
+                        "videos": len(grouped),
+                        "source_frames_per_video": args.num_frames,
+                        "question_context": "hidden",
+                        "summary_word_limit": int(summary_spec["summary_word_limit"]),
+                        "summary_byte_limit": GLOBAL_SUMMARY_BYTE_LIMIT,
+                        "summary_writer_tokens": args.summary_writer_tokens,
+                        "summary_generated_in_this_run": bool(writer_rows),
+                        "source_summary_acceptance_path": (
+                            str(source_summary_acceptance_path.resolve())
+                            if source_summary_acceptance_path is not None
+                            else ""
+                        ),
+                        "source_summary_acceptance_sha256": (
+                            source_summary_acceptance_sha
+                        ),
+                        "source_summary_hashes_matched": (
+                            args.frame_text_profile == "hybrid_fixed"
+                        ),
+                        "summary_attempts": len(writer_rows),
+                        "summary_repairs": max(0, len(writer_rows) - len(grouped)),
+                        "summary_words_by_video": summary_words_by_video,
+                        "summary_sha256_by_video": summary_sha_by_video,
+                        "summary_prompt_sha256": hashlib.sha256(
+                            summary_prompt.encode()
+                        ).hexdigest(),
+                    },
+                    indent=2,
+                )
+                + "\n",
+                encoding="utf-8",
+            )
     if args.mode in FRAME_TEXT_WRITE_ONCE_MODES:
         metadata_rows = read_jsonl(args.out_dir / "frame_time_metadata.jsonl")
         expected_videos = sorted(grouped)

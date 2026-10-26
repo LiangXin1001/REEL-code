@@ -84,7 +84,7 @@ def select_aks_indices(
     scores:
         One finite query--frame relevance score for every source candidate.
     budget:
-        Formal PEState frame budget.  It must be 32, 64, or 128.
+        Formal REEL frame budget. It must be 32, 64, or 128.
     max_depth:
         Maximum number of temporal bisections.  The released AKS default is 5.
     threshold:

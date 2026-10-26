@@ -4,58 +4,109 @@
 
 Accepted at WACV 2027, Datasets and Evaluation Track.
 
-REEL evaluates long-video reuse under repeated questions. It holds the
-observed frames fixed, changes only the saved representation, and reports:
+REEL studies repeated-question long-video inference. For a fixed set of 64
+question-blind timestamps, it changes only what is retained after the video is
+first processed. It then measures answer changes, cumulative GPU work, and
+retained bytes.
 
-1. paired changes in which questions are answered correctly;
-2. cumulative GPU work as more questions are asked; and
-3. retained storage in bytes.
+> **This is still a private release candidate.** REEL-authored code is
+> licensed under Apache-2.0, and software citation metadata is included.
+> Keep the repository private until the remaining checklist in
+> [`docs/RELEASE_AUDIT.md`](docs/RELEASE_AUDIT.md) is complete.
 
-> **Private release staging.** This repository is not ready to be made public.
-> The author list, license, camera-ready paper, public data package, and final
-> reproduction commands still require author approval.
+## Evaluated representations
 
-## Current release candidate
+| Paper name | Runner mode | Retained state |
+| --- | --- | --- |
+| Frames | `query_time_raw` | 64 decoded frames are supplied again for every question |
+| Text | `write_once_frame_text` | one question-blind Balanced24 text record per frame |
+| Visual | `write_once_visual_token_cache` | reusable multimodal encoder outputs, without prefix KV reuse |
+| Prefix State | `write_once_model_state_cache` | multimodal encoder outputs plus reusable prefix KV state |
 
-This first whitelist contains:
+The main evaluation uses the same video IDs, question IDs, question order,
+answer choices, and timestamps across these four paths. See
+[`docs/REPRODUCE.md`](docs/REPRODUCE.md) for the protocol and runner mapping.
 
-- the small `pestate` Python package used by the controlled runner;
-- the controlled CG-Bench memory-policy runner;
-- answer-validity and paper-analysis utilities;
-- selected figure-generation scripts; and
-- tests that do not require private videos or model checkpoints.
+## What is included
 
-It intentionally does **not** contain raw datasets, videos, model weights,
-API responses, cluster logs, full experiment outputs, third-party source
-trees, or internal paper-planning documents.
+- the controlled runner and the small `pestate` utility package;
+- the pinned vLLM encoder-cache instrumentation used by the Visual path;
+- CPU-only cohort audit/build/materialization tools for CG-Bench and HD-EPIC;
+- CPU-only analysis and figure-generation scripts;
+- redistributable tests and synthetic test fixtures;
+- direct dependency versions for the two serving environments; and
+- de-identified aggregate paper tables in `results/paper_tables/`.
+
+The repository does **not** redistribute CG-Bench or HD-EPIC videos or
+annotations, model weights, per-question predictions, raw model responses,
+private prompt-audit artifacts, private run manifests, cluster logs, or
+third-party source trees. The formal prompt templates needed by the runner are
+included in the released source.
+
+Obtain the data and checkpoints from their owners under their original terms:
+
+- [`docs/DATA.md`](docs/DATA.md) records the two benchmark cohorts and sources.
+- [`docs/MODELS.md`](docs/MODELS.md) pins all six checkpoint revisions and
+  serving settings.
+- [`docs/THIRD_PARTY.md`](docs/THIRD_PARTY.md) records external code and
+  attribution boundaries.
+
+## Quick CPU verification
+
+Python 3.11 is recommended for the analysis environment:
+
+```bash
+python3.11 -m venv .venv
+source .venv/bin/activate
+python -m pip install --upgrade pip
+python -m pip install -e '.[analysis,dev]'
+python -m pytest -q
+reel-verify-results
+(cd results/paper_tables && sha256sum -c SHA256SUMS)
+```
+
+These checks do not download videos or checkpoints and do not require a GPU.
+Detailed CPU and GPU installation instructions are in
+[`docs/INSTALL.md`](docs/INSTALL.md).
+
+## Reproduction status
+
+The aggregate result package is self-checking and can be inspected without
+private assets. Full GPU reproduction additionally requires legally obtained
+benchmark media and annotations, the pinned model revisions, and a locally
+built manifest matching the published cohort provenance. The cohort builders
+are included, but the canonical manifest contents and a legally
+redistributable GPU smoke fixture are not tracked here. CG selection IDs and
+order are reproducible; its byte hash additionally depends on the same local
+path and JSON-serialization convention. The repository therefore does not
+claim a download-free, one-command reproduction. See
+[`docs/DATA.md`](docs/DATA.md) for commands and hashes.
 
 ## Repository layout
 
 ```text
 src/pestate/              Core utilities and selectors
-scripts/                  Whitelisted runner and paper-analysis scripts
-tests/                    Redistributable unit tests
-configs/environments/     Direct inference dependency versions
-docs/                     Release, data, model, and third-party notes
-results/paper_tables/     Reserved for small anonymized aggregate tables
-assets/figures/           Reserved for final paper figures
-examples/                 Reserved for legal smoke-test fixtures
+scripts/                  Cohort tools, controlled runner, and analysis scripts
+instrumentation/          Pinned vLLM Visual-cache patch and usage notes
+tests/                    CPU tests and synthetic fixtures
+configs/environments/     Direct GPU-serving dependency versions
+docs/                     Installation and reproducibility records
+results/paper_tables/     De-identified aggregate paper tables
 ```
 
-## Local checks
+## Citation
 
-The lightweight parser test can run without video data or a GPU:
+Until the paper is public, cite this repository as software using
+[`CITATION.cff`](CITATION.cff). It intentionally contains no DOI or arXiv ID.
+The camera-ready paper citation and public URL will be added when available.
 
-```bash
-python -m pip install -e '.[analysis,dev]'
-PYTHONPATH=src:scripts python -m pytest -q tests/test_vlm_parse.py
-```
+## License
 
-The GPU inference environment is deliberately documented separately from the
-analysis environment. See `configs/environments/` and `docs/MODELS.md`.
+REEL-authored code is licensed under the [Apache License 2.0](LICENSE). The
+software author listed in the release metadata is Xin Liang. Third-party works
+retain their own licenses; see [`docs/THIRD_PARTY.md`](docs/THIRD_PARTY.md).
 
-## Before public release
-
-Read [`docs/RELEASE_AUDIT.md`](docs/RELEASE_AUDIT.md). In particular, do not
-publish this repository until the authors choose a code license and approve
-the final author/citation metadata.
+Before changing the GitHub repository's visibility, resolve every remaining
+item in [`docs/RELEASE_AUDIT.md`](docs/RELEASE_AUDIT.md), including the
+clean-environment build, legal GPU smoke test, and final number and
+attribution review.

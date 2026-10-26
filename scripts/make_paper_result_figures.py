@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Generate compact, source-validated figures used by the PEState paper."""
+"""Generate compact, source-validated figures used by the REEL paper."""
 
 from __future__ import annotations
 
@@ -8,7 +8,7 @@ import json
 import os
 from pathlib import Path
 
-os.environ.setdefault("MPLCONFIGDIR", "/tmp/pestate-paper-mpl")
+os.environ.setdefault("MPLCONFIGDIR", "/tmp/reel-paper-mpl")
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -18,7 +18,7 @@ from matplotlib.patches import FancyArrowPatch, FancyBboxPatch
 
 ROOT = Path(__file__).resolve().parents[1]
 TABLES = ROOT / "outputs" / "tables"
-OUT = ROOT / "paper" / "pestate_wacv2027" / "figures" / "generated"
+OUT = ROOT / "paper" / "reel_wacv2027" / "figures" / "generated"
 
 # NPG palette from ggsci. Four conditions use red, blue, orange, and dark blue.
 NPG_RED = "#E64B35"

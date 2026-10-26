@@ -154,8 +154,15 @@ def write_canonical_writer_ledger(path: Path, frame_ids: list[str]) -> None:
 def test_joint_input_imports_exact_canonical_writer_cost(tmp_path: Path) -> None:
     source = tmp_path / "canonical"
     source.mkdir()
-    frame_ids = ["video-1:frame:0", "video-1:frame:1"]
-    write_canonical_writer_ledger(source / "cost_ledger.jsonl", frame_ids)
+    source_frame_ids = [
+        "video-1:controlled:0:0.000000",
+        "video-1:controlled:1:1.000000",
+    ]
+    frame_ids = [
+        "video-1:controlled:hash:native:0:0.000000",
+        "video-1:controlled:hash:native:1:1.000000",
+    ]
+    write_canonical_writer_ledger(source / "cost_ledger.jsonl", source_frame_ids)
     target = tmp_path / "joint.jsonl"
     out_dir = tmp_path / "joint"
     out_dir.mkdir()
@@ -170,6 +177,7 @@ def test_joint_input_imports_exact_canonical_writer_cost(tmp_path: Path) -> None
         model_id="model",
         video_id="video-1",
         frame_ids=frame_ids,
+        selected_times=[0.0, 1.0],
         selected_times_sha256="a" * 64,
         timestamp_manifest_sha256="b" * 64,
         out_dir=out_dir,
@@ -181,6 +189,7 @@ def test_joint_input_imports_exact_canonical_writer_cost(tmp_path: Path) -> None
     assert rows[0]["canonical_text_cost_imported"] is True
     assert rows[0]["gpu_seconds"] == pytest.approx(2.5)
     assert rows[0]["input_text_tokens"] == 10
+    assert rows[0]["unique_frame_ids"] == frame_ids
     provenance = json.loads(
         (out_dir / "prebuilt_writer_cost_provenance.jsonl").read_text()
     )
@@ -195,10 +204,13 @@ def test_joint_input_rejects_canonical_writer_on_different_frames(
     source.mkdir()
     write_canonical_writer_ledger(
         source / "cost_ledger.jsonl",
-        ["video-1:old:0", "video-1:old:1"],
+        [
+            "video-1:controlled:0:0.000000",
+            "video-1:controlled:1:1.000000",
+        ],
     )
 
-    with pytest.raises(ValueError, match="exact selected frames"):
+    with pytest.raises(ValueError, match="frame-ID timestamp changed"):
         runner.import_prebuilt_frame_text_writer_cost(
             directory=source,
             ledger_path=tmp_path / "joint.jsonl",
@@ -208,7 +220,11 @@ def test_joint_input_rejects_canonical_writer_on_different_frames(
             dataset_version="dataset",
             model_id="model",
             video_id="video-1",
-            frame_ids=["video-1:new:0", "video-1:new:1"],
+            frame_ids=[
+                "video-1:controlled:hash:native:0:0.000000",
+                "video-1:controlled:hash:native:1:2.000000",
+            ],
+            selected_times=[0.0, 2.0],
             selected_times_sha256="a" * 64,
             timestamp_manifest_sha256="b" * 64,
             out_dir=tmp_path,

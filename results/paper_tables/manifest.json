@@ -1,0 +1,192 @@
+{
+  "schema_version": "reel.paper_tables.v1",
+  "files": {
+    "main_table_selection.csv": {
+      "rows": 12,
+      "required_columns": [
+        "dataset",
+        "model",
+        "lowest_cost_passing_condition",
+        "lowest_cost_passing_gpu_seconds_per_video",
+        "frames_gpu_seconds_per_video",
+        "text_gpu_seconds_per_video",
+        "visual_gpu_seconds_per_video",
+        "prefix_gpu_seconds_per_video"
+      ]
+    },
+    "main_four_path_metrics.csv": {
+      "rows": 48,
+      "required_columns": [
+        "dataset",
+        "model",
+        "candidate",
+        "reference",
+        "questions",
+        "videos",
+        "condition_accuracy_estimate",
+        "vs_reference_accuracy_delta_estimate",
+        "vs_reference_loss_estimate",
+        "vs_reference_correctness_flip_estimate"
+      ]
+    },
+    "cost_sensitivity.csv": {
+      "rows": 36,
+      "required_columns": [
+        "dataset",
+        "model",
+        "contrast",
+        "left_condition",
+        "right_condition",
+        "absolute_main_cost_difference_seconds",
+        "relevant_path_max_batch_difference_seconds",
+        "difference_smaller_than_relevant_path_batch_difference",
+        "cost_order_can_flip_with_batch_choice"
+      ]
+    },
+    "selection_paths.csv": {
+      "rows": 12,
+      "required_columns": [
+        "dataset",
+        "model",
+        "horizon",
+        "gpu_only_path_code",
+        "gpu_only_endpoint",
+        "quality_path_code",
+        "quality_endpoint",
+        "path_changed_by_quality",
+        "endpoint_changed_by_quality"
+      ]
+    },
+    "cost_components.csv": {
+      "rows": 48,
+      "required_columns": [
+        "dataset",
+        "model",
+        "condition",
+        "common_horizon",
+        "build_gpu_seconds_mean_per_video",
+        "query_gpu_seconds_mean_per_question_common_horizon",
+        "total_common_gpu_seconds_mean_per_video",
+        "all_questions_total",
+        "total_all_gpu_seconds_mean_per_video"
+      ]
+    },
+    "quality_profiles_vs_frames.csv": {
+      "rows": 48,
+      "required_columns": [
+        "dataset",
+        "model",
+        "profile",
+        "reference",
+        "analysis_family",
+        "evaluated_questions",
+        "accuracy_delta",
+        "loss",
+        "gain",
+        "correctness_flip"
+      ]
+    },
+    "clue_window_interactions.csv": {
+      "rows": 3,
+      "required_columns": [
+        "model",
+        "attempted_questions",
+        "evaluated_questions",
+        "excluded_questions",
+        "uniform_text_minus_raw",
+        "evidence_window_text_minus_raw",
+        "representation_gap_interaction",
+        "representation_gap_interaction_ci_low",
+        "representation_gap_interaction_ci_high",
+        "interaction_ci_contains_zero"
+      ]
+    },
+    "question_type_by_official_type.csv": {
+      "rows": 168,
+      "required_columns": [
+        "dataset",
+        "model",
+        "publication_status",
+        "display_allowed",
+        "official_question_type",
+        "total_questions",
+        "paired_valid_questions",
+        "raw_accuracy",
+        "text_accuracy",
+        "text_minus_raw",
+        "ci_low",
+        "ci_high"
+      ]
+    },
+    "representation_storage.csv": {
+      "rows": 24,
+      "required_columns": [
+        "dataset",
+        "model",
+        "representation",
+        "videos",
+        "unit",
+        "mean_bytes",
+        "median_bytes",
+        "measurement_scope"
+      ]
+    },
+    "storage_budget_endpoint_counts.csv": {
+      "rows": 8,
+      "required_columns": [
+        "budget_label",
+        "budget_bytes",
+        "workloads",
+        "frames_selected",
+        "text_selected",
+        "visual_selected",
+        "prefix_selected"
+      ]
+    },
+    "cg_uniform32_uniform64_four_path.csv": {
+      "rows": 24,
+      "required_columns": [
+        "model",
+        "path",
+        "condition",
+        "frame_budget",
+        "common_horizon_questions_per_video",
+        "cumulative_gpu_seconds_per_video",
+        "gpu_seconds_saving_vs_same_budget_frames",
+        "accuracy_all_questions",
+        "paired_valid_questions",
+        "correctness_flip",
+        "one_way_loss",
+        "storage_measured_for_this_frame_budget"
+      ]
+    },
+    "summary_ablation_frames_agreement.csv": {
+      "rows": 12,
+      "required_columns": [
+        "dataset",
+        "model",
+        "same_run",
+        "questions",
+        "correctness_agreement_count_all_questions",
+        "correctness_agreement_rate_all_questions",
+        "paired_valid_questions",
+        "correctness_agreement_count_paired_valid",
+        "correctness_agreement_rate_paired_valid"
+      ]
+    },
+    "batch_timing_variation.csv": {
+      "rows": 36,
+      "required_columns": [
+        "dataset",
+        "model",
+        "condition",
+        "observed_batches",
+        "distinct_observed_costs",
+        "main_gpu_seconds_per_video",
+        "minimum_observed_gpu_seconds_per_video",
+        "maximum_observed_gpu_seconds_per_video",
+        "max_minus_min_batch_difference_seconds"
+      ]
+    }
+  }
+}

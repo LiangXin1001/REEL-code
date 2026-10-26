@@ -1,0 +1,13 @@
+dataset,dataset_slug,model,model_slug,same_run,questions,correctness_agreement_count_all_questions,correctness_agreement_rate_all_questions,paired_valid_questions,correctness_agreement_count_paired_valid,correctness_agreement_rate_paired_valid
+CG MQ-50,cg,Qwen3-VL-8B,qwen3vl,True,300,300,1.0,297,297,1.0
+CG MQ-50,cg,InternVL3-8B,internvl3,False,300,300,1.0,291,291,1.0
+CG MQ-50,cg,Gemma-3-12B-IT,gemma3,True,300,300,1.0,300,300,1.0
+CG MQ-50,cg,Qwen3-VL-4B,qwen3vl4b,False,300,295,0.9833333333333333,300,295,0.9833333333333333
+CG MQ-50,cg,InternVL3.5-8B,internvl35_8b,False,300,300,1.0,287,287,1.0
+CG MQ-50,cg,MiniCPM-V-4.5-8B,minicpmv45,False,300,300,1.0,300,300,1.0
+HD-EPIC-51,hd,Qwen3-VL-8B,qwen3vl,True,1871,1871,1.0,1836,1836,1.0
+HD-EPIC-51,hd,InternVL3-8B,internvl3,True,1871,1871,1.0,1854,1854,1.0
+HD-EPIC-51,hd,Gemma-3-12B-IT,gemma3,True,1871,1871,1.0,1868,1868,1.0
+HD-EPIC-51,hd,Qwen3-VL-4B,qwen3vl4b,True,1871,1871,1.0,1869,1869,1.0
+HD-EPIC-51,hd,InternVL3.5-8B,internvl35_8b,True,1871,1871,1.0,1705,1705,1.0
+HD-EPIC-51,hd,MiniCPM-V-4.5-8B,minicpmv45,True,1871,1871,1.0,1871,1871,1.0

@@ -1,4 +1,4 @@
-"""Append-only, per-operation cost accounting for formal PEState runs.
+"""Append-only, per-operation cost accounting for formal REEL runs.
 
 The ledger deliberately records an event when it happens.  It is not a
 post-hoc estimate derived from final answers.

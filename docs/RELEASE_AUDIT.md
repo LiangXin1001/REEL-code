@@ -1,67 +1,76 @@
 # Public-release audit
 
-## Decision
+## Release boundary
 
-Create a new repository with a new Git history and copy files from a
-whitelist. Do not make the working PEState repository public, do not fork it
-for release, and do not run `git add -A` from that repository.
+This repository is the only candidate for the public REEL code release. It
+was created from a whitelist with a new Git history. The private PEState
+working repository must never be made public, forked for release, or copied
+with a broad command such as `git add -A`.
 
-## Why the working repository cannot be uploaded
+The release candidate contains:
 
-The working tree is about 5.5 GB and mixes source code with research state:
+- the small `pestate` package and controlled experiment runner;
+- the exact REEL-authored vLLM encoder-cache instrumentation used by Visual;
+- CPU analysis and figure-generation scripts;
+- tests that do not require private assets;
+- exact direct dependency versions for the two GPU serving environments; and
+- small, de-identified aggregate result tables.
 
-- `outputs/` is about 3.6 GB and contains logs, model responses, audit
-  materials, API-batch artifacts, and thousands of stale symbolic links to
-  personal cluster paths;
-- `third_party/` is about 1.6 GB and contains nested repositories, videos,
-  annotations, checkpoints, and projects whose redistribution terms differ;
-- `data/`, `models/`, environment directories, literature PDFs, archives, and
-  paper working files should not be copied wholesale;
-- many SLURM scripts and some configs contain `/data/...` or `/u/...` paths;
-  and
-- deleting a sensitive or internal file in a later commit does not remove it
-  from the old repository history.
+It intentionally excludes raw videos and annotations, model weights, model
+responses, per-question records, cluster launch files and logs, private paper
+sources, third-party source trees, and the private experiment workspace.
 
-The first-pass pattern scan did not find a common high-confidence private-key
-or API-token format in the whitelisted text files. This is not a guarantee.
+## Why the working repository is not releasable
 
-## Current whitelist
+The working repository mixes source code with several gigabytes of research
+state. Its history and working tree include licensed assets, nested upstream
+repositories, job logs, checkpoints, API artifacts, and files containing
+personal cluster paths. Deleting those files in a later commit would not
+remove them from Git history.
 
-- `src/pestate/*.py`
-- `scripts/run_controlled_memory_policy_cgbench.py`
-- `scripts/lifecycle_answer_validity.py`
-- `scripts/make_paper_diagram_figures.py`
-- `scripts/make_paper_result_figures.py`
-- `scripts/make_strict_question_type_heatmaps.py`
-- `scripts/analyze_hd_all_question_costs.py`
-- `scripts/make_strict_internvl_resource_profile.py`
-- `scripts/make_glm_tariff_paper_assets.py`
-- `scripts/make_representation_payload_figure.py`
-- `scripts/paper_plot_style.py`
-- selected tests that exercise these files without private assets
+## Generated-file warning
 
-This is a starting point, not proof that every paper result is reproducible
-from the current repository.
+Several experiment scripts record resolved input and output paths in their
+provenance manifests. This is useful during a run, but those generated
+manifests can expose a local username or cluster layout. Do not commit a run
+directory directly. Reduce it to an aggregate table, remove path-bearing
+columns, then run both verification commands below.
 
-## Never copy wholesale
+## Automated checks
 
-- `outputs/`, `data/`, `models/`, `third_party/`, `third_party_env/`, `.deps/`
-- raw or licensed videos and annotations
-- model caches, weights, API responses, and batch request/result files
-- SLURM logs and job-specific launch scripts
-- internal research plans, audit packs, writing studies, and reviewer material
-- Overleaf ZIP files and LaTeX build artifacts
-- literature PDFs or other copyrighted papers
+From the repository root:
 
-## Required before changing GitHub visibility to public
+```bash
+python -m pip install -e '.[analysis,dev]'
+python -m pytest -q
+python -m ruff check src scripts tests instrumentation compat
+reel-verify-results
+reel-release-audit
+```
 
-- [ ] Authors choose and approve the repository license.
-- [ ] Camera-ready author order and citation are added.
-- [ ] Every candidate file receives a second manual path/secret review.
-- [ ] `gitleaks` or an equivalent secret scanner passes on the full new history.
-- [ ] No tracked file exceeds the intended repository size limit.
-- [ ] Third-party attribution and licenses are complete.
-- [ ] A clean-environment install and CPU smoke test pass.
-- [ ] At least one documented GPU smoke test passes on legally obtained data.
-- [ ] Released aggregate tables contain no private paths or raw model output.
-- [ ] Website numbers match the camera-ready manuscript.
+The audit checks the release tree for symbolic links, oversized files,
+generated build products, common credential formats, private absolute path
+patterns, and AI-author attribution comments. It complements, but does not
+replace, a dedicated full-history secret scanner.
+
+## Required before changing GitHub visibility
+
+- [x] Add the author-approved Apache-2.0 `LICENSE`.
+- [x] Add author-approved software citation metadata in `CITATION.cff`.
+- [x] Rewrite the candidate history so every public-branch commit uses the
+      GitHub-provided `noreply` address.
+- [x] Run the strict `reel-release-audit` check.
+- [x] Run Gitleaks over the complete new history and current candidate tree.
+- [ ] Repeat the install, CPU tests, aggregate-result verification, and package
+      build in a clean environment.
+- [ ] Document one successful GPU smoke test using legally obtained data.
+- [ ] Complete a second manual review of every tracked file and third-party
+      attribution.
+- [ ] Confirm that released numbers match the camera-ready manuscript.
+
+The public paper URL and preferred paper citation should be added after they
+exist. Their absence does not block a software-only release citation.
+
+Do not change repository visibility, create a public release, or upload public
+assets until every item above is resolved and approved by an author. A push to
+the private staging repository should still be a separate, reviewed action.

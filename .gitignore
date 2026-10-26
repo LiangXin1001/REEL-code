@@ -5,9 +5,13 @@ __pycache__/
 .mypy_cache/
 .ruff_cache/
 .coverage
+.coverage.*
 htmlcov/
 .venv/
 venv/
+build/
+dist/
+*.egg-info/
 
 # Local configuration and credentials
 .env
@@ -37,6 +41,10 @@ wandb/
 *.zip
 *.tar
 *.tar.gz
+
+# Local paper builds and generated reports
+paper/
+*.log
 
 # Cluster and editor files
 slurm-*.out

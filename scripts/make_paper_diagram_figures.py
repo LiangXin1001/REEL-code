@@ -1,20 +1,19 @@
 #!/usr/bin/env python3
-"""Generate PEState overview and resource-accounting diagrams as PDF/PNG assets."""
+"""Generate REEL overview and resource-accounting diagrams as PDF/PNG assets."""
 
 from __future__ import annotations
 
 import os
 from pathlib import Path
 
-os.environ.setdefault("MPLCONFIGDIR", "/tmp/pestate-diagram-mpl")
+os.environ.setdefault("MPLCONFIGDIR", "/tmp/reel-diagram-mpl")
 
 import matplotlib.pyplot as plt
 from matplotlib.patches import Circle, FancyArrowPatch, FancyBboxPatch, Rectangle
-from PIL import Image
 
 
 ROOT = Path(__file__).resolve().parents[1]
-PAPER = ROOT / "paper" / "pestate_wacv2027"
+PAPER = ROOT / "paper" / "reel_wacv2027"
 ASSETS = PAPER / "figures" / "assets"
 OUT = PAPER / "figures" / "generated"
 
@@ -54,7 +53,9 @@ def save(fig, stem: str):
 
 def overview():
     fig, ax = plt.subplots(figsize=(10.5, 2.45))
-    ax.set_xlim(0, 1); ax.set_ylim(0, 1); ax.axis("off")
+    ax.set_xlim(0, 1)
+    ax.set_ylim(0, 1)
+    ax.axis("off")
 
     source = box(ax, .035, .68, .20, .18,
                  "LONG VIDEO $V$\nREPEATED QUESTIONS $q_1, \\ldots, q_m$",
@@ -64,12 +65,13 @@ def overview():
                   "observe after each question", ORANGE, "#FFF8F1", 7.8)
     write = box(ax, .30, .43, .20, .18,
                 "build before questions\nthen reuse", GREEN, "#F2FAF6", 7.8)
-    repeated = box(ax, .56, .70, .17, .15,
-                   "repeated visual\ncomputation", ORANGE, "#FFF8F1", 7.7)
-    stored = box(ax, .56, .43, .17, .18,
-                 "saved representation\nreused by later questions", GREEN, "#F2FAF6", 7.7)
-    cost = box(ax, .80, .56, .17, .22,
-               "CUMULATIVE RESOURCE $R_k(m)$\nconstruction cost amortized?", PURPLE, "#F7F4FB", 7.5, "bold")
+    box(ax, .56, .70, .17, .15,
+        "repeated visual\ncomputation", ORANGE, "#FFF8F1", 7.7)
+    box(ax, .56, .43, .17, .18,
+        "saved representation\nreused by later questions", GREEN, "#F2FAF6", 7.7)
+    box(ax, .80, .56, .17, .22,
+        "CUMULATIVE RESOURCE $R_k(m)$\nconstruction cost amortized?",
+        PURPLE, "#F7F4FB", 7.5, "bold")
 
     arrow(ax, (source.get_x() + source.get_width(), .77), (observe.get_x(), .775), ORANGE)
     arrow(ax, (source.get_x() + source.get_width(), .72), (write.get_x(), .52), GREEN)
@@ -78,12 +80,12 @@ def overview():
     arrow(ax, (.73, .775), (.80, .70), ORANGE)
     arrow(ax, (.73, .52), (.80, .63), GREEN)
 
-    quality = box(ax, .56, .12, .17, .17,
-                  "PAIRED ANSWERS\nwhich questions change?\nquality within margin?",
-                  RED, "#FFF6F6", 6.9, "bold")
-    useful = box(ax, .80, .10, .17, .20,
-                 "USEFUL REUSE\nlower resource\n+ quality maintained",
-                 NAVY, PALE, 7.1, "bold")
+    box(ax, .56, .12, .17, .17,
+        "PAIRED ANSWERS\nwhich questions change?\nquality within margin?",
+        RED, "#FFF6F6", 6.9, "bold")
+    box(ax, .80, .10, .17, .20,
+        "USEFUL REUSE\nlower resource\n+ quality maintained",
+        NAVY, PALE, 7.1, "bold")
     arrow(ax, (.885, .56), (.885, .30), PURPLE)
     arrow(ax, (.73, .205), (.80, .205), RED)
     ax.text(.035, .19,
@@ -95,7 +97,9 @@ def overview():
 
 def ledger():
     fig, ax = plt.subplots(figsize=(10.5, 1.75))
-    ax.set_xlim(0, 1); ax.set_ylim(0, 1); ax.axis("off")
+    ax.set_xlim(0, 1)
+    ax.set_ylim(0, 1)
+    ax.axis("off")
     ax.text(.04, .91, "ACTUAL INFERENCE OPERATIONS", fontsize=8.5,
             fontweight="bold", color=NAVY, ha="left")
     stages = [
@@ -131,7 +135,9 @@ def ledger():
 
 def evaluation_gap():
     fig, ax = plt.subplots(figsize=(10.5, 3.7))
-    ax.set_xlim(0, 1); ax.set_ylim(0, 1); ax.axis("off")
+    ax.set_xlim(0, 1)
+    ax.set_ylim(0, 1)
+    ax.axis("off")
 
     rows = ["Conventional LVQA", "CG-Bench", "HERBench", "Cost-of-Pass", "REEL"]
     columns = [
@@ -187,7 +193,9 @@ def evaluation_gap():
 
 def paired_comparisons():
     fig, ax = plt.subplots(figsize=(10.5, 4.2))
-    ax.set_xlim(0, 1); ax.set_ylim(0, 1); ax.axis("off")
+    ax.set_xlim(0, 1)
+    ax.set_ylim(0, 1)
+    ax.axis("off")
     ax.text(.5, .955,
             "FIXED WITHIN EACH PAIR: model | video | questions | frame budget | hardware",
             ha="center", va="center", fontsize=8.2, fontweight="bold", color=NAVY)
@@ -205,10 +213,9 @@ def paired_comparisons():
     for y, label, left_text, right_text, change, measure, color in lanes:
         ax.text(.025, y, label, ha="left", va="center", fontsize=7.5,
                 fontweight="bold", color=color)
-        left_box = box(ax, .22, y - .065, .20, .13, left_text, color,
-                       "white", 7.7)
-        right_box = box(ax, .59, y - .065, .20, .13, right_text, color,
-                        PALE if color == BLUE else "white", 7.7)
+        box(ax, .22, y - .065, .20, .13, left_text, color, "white", 7.7)
+        box(ax, .59, y - .065, .20, .13, right_text, color,
+            PALE if color == BLUE else "white", 7.7)
         arrow(ax, (.42, y), (.59, y), color, 1.3)
         ax.text(.505, y + .035, change, ha="center", va="center", fontsize=7.0,
                 color=color, fontweight="bold")
@@ -220,19 +227,21 @@ def paired_comparisons():
 
 def caption_triangle():
     fig, ax = plt.subplots(figsize=(8.8, 3.5))
-    ax.set_xlim(0, 1); ax.set_ylim(0, 1); ax.axis("off")
+    ax.set_xlim(0, 1)
+    ax.set_ylim(0, 1)
+    ax.axis("off")
 
-    recomputed = box(
+    box(
         ax, .34, .70, .32, .19,
         "RECOMPUTED CAPTIONS\nquestion hidden\nrecompute per query",
         BLUE, "#F2F7FC", 10.3, "bold",
     )
-    shared = box(
+    box(
         ax, .03, .11, .31, .19,
         "SHARED CAPTIONS\nquestion hidden\nbuild once and reuse",
         TEAL, "#F1FAFA", 10.3, "bold",
     )
-    specific = box(
+    box(
         ax, .66, .11, .31, .19,
         "QUESTION-SPECIFIC CAPTIONS\nquestion visible\nrecompute per query",
         ORANGE, "#FFF8F1", 9.8, "bold",

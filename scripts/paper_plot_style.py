@@ -1,4 +1,4 @@
-"""Shared visual constants for axis-based figures in the PEState paper.
+"""Shared visual constants for axis-based figures in the REEL paper.
 
 Keep this file small: figure-specific layout stays in each generator, while
 frame, grid, edge, and auxiliary-text styling is defined once here.

@@ -1,0 +1,4 @@
+# Keep authenticated aggregate artifacts byte-identical on every platform.
+results/paper_tables/*.csv -text
+results/paper_tables/manifest.json -text
+results/paper_tables/SHA256SUMS -text

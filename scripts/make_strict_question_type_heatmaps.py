@@ -15,11 +15,10 @@ import json
 import os
 from pathlib import Path
 
-os.environ.setdefault("MPLCONFIGDIR", "/tmp/pestate-strict-type-mpl")
+os.environ.setdefault("MPLCONFIGDIR", "/tmp/reel-strict-type-mpl")
 
 import matplotlib.pyplot as plt
 import numpy as np
-from matplotlib.colors import ListedColormap
 from matplotlib.patches import Rectangle
 
 from paper_plot_style import style_colorbar, style_heatmap_axis
@@ -28,7 +27,7 @@ from paper_plot_style import style_colorbar, style_heatmap_axis
 ROOT = Path(__file__).resolve().parents[1]
 SOURCE = ROOT / "outputs/tables/frame_text_by_question_type_strict_all6_20260823"
 REWEIGHT_SOURCE = ROOT / "outputs/tables/official_question_mix_reweighting_strict_all6_20260823"
-OUT = ROOT / "paper/pestate_wacv2027/figures/generated"
+OUT = ROOT / "paper/reel_wacv2027/figures/generated"
 
 MODEL_ORDER = (
     "Qwen3-VL-8B",

@@ -4,9 +4,6 @@ from pathlib import Path
 
 import cv2
 
-from .time_utils import index_to_time
-
-
 def time_to_frame_index(time_s: float, total_frames: int, duration: float) -> int:
     if total_frames <= 1 or duration <= 0:
         return 0

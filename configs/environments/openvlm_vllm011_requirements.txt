@@ -4,3 +4,4 @@
 vllm==0.11.0
 transformers==4.57.0
 torch==2.8.0
+mistral-common==1.11.3

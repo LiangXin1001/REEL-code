@@ -21,7 +21,7 @@ import re
 from pathlib import Path
 from typing import Any
 
-os.environ.setdefault("MPLCONFIGDIR", "/tmp/pestate-paper-mpl")
+os.environ.setdefault("MPLCONFIGDIR", "/tmp/reel-paper-mpl")
 
 import matplotlib.pyplot as plt
 from matplotlib.colors import TwoSlopeNorm
@@ -32,9 +32,9 @@ from paper_plot_style import EDGE_WIDTH, style_colorbar, style_xy_axis
 
 
 MODELS = (
-    ("Qwen3-VL-8B", "Q"),
-    ("InternVL3-8B", "I"),
-    ("Gemma-3-12B-IT", "G"),
+    ("Qwen3-VL-8B", "Qwen"),
+    ("InternVL3-8B", "InternVL"),
+    ("Gemma-3-12B-IT", "Gemma"),
 )
 MODEL_LABELS = dict(MODELS)
 DATASETS = ("CG", "HD")
@@ -53,7 +53,7 @@ PANEL_MARGINS = {
     "left": 0.25,
     "right": 0.98,
     "bottom": 0.31,
-    "top": 0.79,
+    "top": 0.84,
 }
 
 
@@ -518,7 +518,6 @@ def plot_panel(
     # side, while leaving dedicated bands for the legend and colorbar.
     fig, ax = plt.subplots(figsize=PANEL_FIGSIZE)
     ax.axhline(0, color=MUTED, linestyle="--", linewidth=0.8, alpha=0.8, zorder=0)
-    label_offsets = {"Q": (3, 3), "I": (3, -5), "G": (3, 3)}
     for row in panel:
         color = cmap(norm(float(row["difference_pp"])))
         y = float(row["gpu_saving_vs_raw_pct"])
@@ -541,16 +540,20 @@ def plot_panel(
             linewidth=EDGE_WIDTH,
             zorder=3,
         )
+        model_label = str(row["model_label"])
+        label_on_left = float(row["median_bytes"]) >= 1e9
         ax.annotate(
-            str(row["model_label"]),
+            model_label,
             (float(row["median_bytes"]), y),
-            xytext=label_offsets[str(row["model_label"])],
+            xytext=(-3, -4 if model_label == "InternVL" else 3)
+            if label_on_left
+            else (3, -4 if model_label == "InternVL" else 3),
             textcoords="offset points",
-            fontsize=8.0,
+            fontsize=6.0,
             fontweight="bold",
             color="#26323D",
-            ha="left",
-            va="bottom" if row["model_label"] != "I" else "top",
+            ha="right" if label_on_left else "left",
+            va="top" if model_label == "InternVL" else "bottom",
         )
 
     y_values = [float(row["gpu_saving_vs_raw_pct"]) for row in panel]
@@ -590,15 +593,6 @@ def plot_panel(
         bbox_to_anchor=(0.52, 0.99),
         handletextpad=0.3,
         columnspacing=0.42,
-    )
-    fig.text(
-        0.52,
-        0.855,
-        "Q: Qwen   I: InternVL   G: Gemma",
-        ha="center",
-        va="center",
-        fontsize=6.4,
-        color="#26323D",
     )
     colorbar_ax = fig.add_axes([0.25, 0.065, 0.69, 0.032])
     scalar = plt.cm.ScalarMappable(norm=norm, cmap=cmap)
