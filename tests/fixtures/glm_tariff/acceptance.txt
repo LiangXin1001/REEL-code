@@ -1,0 +1,6 @@
+accepted=true
+workloads=6
+representations=4
+internvl3_strict_ledgers=true
+price_components=missed_input,cache_hit_input,output
+claim_scope=counterfactual_tariff_sensitivity_not_glm_api_measurement

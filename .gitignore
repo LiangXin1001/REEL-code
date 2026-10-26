@@ -1,0 +1,46 @@
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+.venv/
+venv/
+
+# Local configuration and credentials
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.token
+.netrc
+
+# Data, models, caches, and run artifacts
+data/
+models/
+checkpoints/
+outputs/
+runs/
+logs/
+wandb/
+*.safetensors
+*.ckpt
+*.pt
+*.pth
+*.bin
+*.mp4
+*.mkv
+*.avi
+*.zip
+*.tar
+*.tar.gz
+
+# Cluster and editor files
+slurm-*.out
+*.err
+.DS_Store
+.idea/
+.vscode/

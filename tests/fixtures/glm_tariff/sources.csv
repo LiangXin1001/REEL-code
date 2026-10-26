@@ -1,0 +1,7 @@
+dataset,model,requests_using_32k_plus_tier
+CG MQ-50,Gemma-3-12B-IT,0
+CG MQ-50,InternVL3-8B,1
+CG MQ-50,Qwen3-VL-8B,1
+HD-EPIC-51,Gemma-3-12B-IT,0
+HD-EPIC-51,InternVL3-8B,1
+HD-EPIC-51,Qwen3-VL-8B,1

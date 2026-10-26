@@ -1,0 +1,9 @@
+# Direct runtime versions used for Molmo2-8B and MiniCPM-V 4.5.
+# Personal cluster prefixes have intentionally been removed.
+
+vllm==0.15.0
+transformers==4.57.1
+torch==2.9.1
+fastapi==0.128.0
+starlette==0.50.0
+molmo-utils
