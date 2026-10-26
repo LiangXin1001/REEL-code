@@ -26,7 +26,7 @@ analysis = [
 dev = [
   "build>=1.2",
   "pytest>=8",
-  "ruff>=0.15",
+  "ruff==0.17.2",
 ]
 
 [project.scripts]
@@ -49,6 +49,11 @@ testpaths = ["tests"]
 
 [tool.ruff]
 target-version = "py311"
+
+[tool.ruff.lint]
+# Keep the checked rule set explicit so Ruff releases cannot silently broaden
+# CI to newly introduced style rules.
+select = ["E4", "E7", "E9", "F"]
 
 [tool.ruff.lint.per-file-ignores]
 "scripts/run_controlled_memory_policy_cgbench.py" = ["E402"]
